@@ -47,14 +47,18 @@ func (s *Sync) nextSequence() uint64 {
 }
 
 func (s *Sync) firstPass() {
-	handle := func(path string, info os.FileInfo, err error) error {
+	handle := func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if info.IsDir() {
 			return nil
 		}
-		s.queue <- path
+		if strings.HasPrefix(path.Base(p), ".") {
+			// skip .hidden_files
+			return nil
+		}
+		s.queue <- p
 		return nil
 	}
 	err := filepath.Walk(s.Src, handle)
@@ -136,7 +140,8 @@ func (s *Sync) Upload(sequence uint64, f string) error {
 		return err
 	}
 	duration := time.Since(start)
-	log.Printf("[%d] - finished %s %s", resp.Location, duration)
+	rate := float64(size) / (float64(duration) / float64(time.Second))
+	log.Printf("[%d] - finished %s took: %s rate: %.fB/s", sequence, resp.Location, duration, rate)
 	return nil
 }
 
