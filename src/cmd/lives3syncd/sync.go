@@ -1,37 +1,49 @@
 package main
 
 import (
-	"fmt"
-	"io"
 	"log"
+	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
+	// "github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
-
-type Sync struct{
-	Bucket: string
-	Svc    *s3.S3
-	Src string
+type Sync struct {
+	Bucket string
+	S3     *s3.S3
+	Src    string
 	Prefix string
 	DryRun bool
-	queue chan string
-	pending map[string]bool
+
+	count      uint64
+	queue      chan string
+	pending    map[string]bool
+	upload     chan string
+	uploadDone chan bool
+
 	sync.RWMutex
 }
 
 func NewSync() *Sync {
-	s = &Sync{
-		queue: make(chan string, 100)
-		pending: make(map[string]bool)
+	s := &Sync{
+		queue:      make(chan string, 100),
+		pending:    make(map[string]bool),
+		upload:     make(chan string),
+		uploadDone: make(chan bool, 1),
 	}
 	return s
-	
+}
+
+func (s *Sync) nextSequence() uint64 {
+	return atomic.AddUint64(&s.count, 1)
 }
 
 func (s *Sync) firstPass() {
@@ -42,90 +54,90 @@ func (s *Sync) firstPass() {
 		if info.IsDir() {
 			return nil
 		}
-		s.queue <- handle
+		s.queue <- path
+		return nil
 	}
 	err := filepath.Walk(s.Src, handle)
 	if err != nil {
 		log.Fatalf("%s", err)
 	}
+	log.Printf("exiting firstPass. closing s.queue")
+	close(s.queue)
 }
 
-func (s *Sync) Uploader(){ 
+func (s *Sync) Uploader(wg *sync.WaitGroup) {
 	// goroutine that listens for files to upload
+	for file := range s.upload {
+		sequence := s.nextSequence()
+		err := s.Upload(sequence, file)
+		if err != nil {
+			log.Printf("[%d] error: %s - %s", sequence, err, file)
+		}
+		select {
+		case s.uploadDone <- true:
+		default:
+			continue
+		}
+	}
+	log.Printf("Uploader Done")
+	wg.Done()
 }
 
 func (s *Sync) Run() {
 	// start fsnotify
-	s.firstPass()
+	go s.firstPass()
+	for f := range s.queue {
+		s.upload <- f
+	}
+	log.Printf("exiting Run(). closing s.upload")
+	close(s.upload)
 }
 
-func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	key := req.URL.Path
-	if key == "/" {
-		key = "/index.html"
+func (s *Sync) Upload(sequence uint64, f string) error {
+	key := f
+	if s.Prefix != "" {
+		key = path.Join(s.Prefix, key)
+	}
+	if !strings.HasPrefix(key, "/") {
+		key = "/" + key
 	}
 
-	input := &s3.GetObjectInput{
-		Bucket: aws.String(p.Bucket),
+	inputFile, err := os.Open(f)
+	if err != nil {
+		return err
+	}
+	defer inputFile.Close()
+
+	stat, err := inputFile.Stat()
+	if err != nil {
+		return err
+	}
+	size := stat.Size()
+	// TODO: size check against content already in S3
+	log.Printf("[%d] - %q => s3:///%s%s size:%d bytes", sequence, f, s.Bucket, key, size)
+	start := time.Now()
+
+	if s.DryRun {
+		return nil
+	}
+
+	uploader := s3manager.NewUploader(&s3manager.UploadOptions{
+		S3:       s.S3,
+		PartSize: 1024 * 1024 * 10,
+	})
+
+	resp, err := uploader.Upload(&s3manager.UploadInput{
+		Bucket: aws.String(s.Bucket),
 		Key:    aws.String(key),
+		Body:   inputFile,
+	},
+	)
+	if err != nil {
+		return err
 	}
-	if v := req.Header.Get("If-None-Match"); v != "" {
-		input.IfNoneMatch = aws.String(v)
-	}
-
-	// awsReq, resp := p.Svc.GetObjectRequest(input)
-	// log.Printf("request: %#v", awsReq)
-	// err := awsReq.Send()
-	// log.Printf("response: %#v", )
-
-	var is304 bool
-	resp, err := p.Svc.GetObject(input)
-	if awsErr, ok := err.(awserr.Error); ok {
-		switch awsErr.Code() {
-		case "NoSuchKey":
-			http.Error(rw, "Page Not Found", 404)
-			return
-		case "304NotModified":
-			is304 = true
-			// continue so other headers get set appropriately
-		default:
-			log.Printf("Error: %v %v", awsErr.Code(), awsErr.Message())
-			http.Error(rw, "Internal Error", 500)
-			return
-		}
-	} else if err != nil {
-		log.Printf("not aws error %v %s", err, err)
-		http.Error(rw, "Internal Error", 500)
-		return
-	}
-
-	var contentType string
-	if resp.ContentType != nil {
-		contentType = *resp.ContentType
-	}
-
-	if contentType == "" {
-		ext := path.Ext(req.URL.Path)
-		contentType = mime.TypeByExtension(ext)
-	}
-
-	if resp.ETag != nil && *resp.ETag != "" {
-		rw.Header().Set("Etag", *resp.ETag)
-	}
-
-	if contentType != "" {
-		rw.Header().Set("Content-Type", contentType)
-	}
-	if resp.ContentLength != nil && *resp.ContentLength > 0 {
-		rw.Header().Set("Content-Length", fmt.Sprintf("%d", *resp.ContentLength))
-	}
-
-	if is304 {
-		rw.WriteHeader(304)
-	}
-
-	io.Copy(rw, resp.Body)
-	resp.Body.Close()
+	duration := time.Since(start)
+	log.Printf("[%d] - finished %s %s", resp.Location, duration)
+	return nil
 }
 
 // resp, err := svc.ListObjects(&s3.ListObjectsInput{

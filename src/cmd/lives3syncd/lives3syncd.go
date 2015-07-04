@@ -3,8 +3,8 @@ package main
 import (
 	"flag"
 	"log"
-	"os"
-	"time"
+	"runtime"
+	"sync"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -29,20 +29,23 @@ func main() {
 
 	s := NewSync()
 	s.Bucket = *bucket
-	s.Svc = svc
+	s.S3 = svc
 	s.Src = *src
 	s.Prefix = *prefix
 	s.DryRun = *dryRun
 
 	// launch the right number of concurrent uploads
+	var wg sync.WaitGroup
 	n := *parallelUploads
 	if n < 1 {
-		n = go.GOMAXPROCS
+		n = runtime.GOMAXPROCS(0)
 	}
 	for i := 0; i < n; i++ {
-		go s.Uploader()
+		wg.Add(1)
+		go s.Uploader(&wg)
 	}
-	
+
 	s.Run()
+	wg.Done()
 
 }
