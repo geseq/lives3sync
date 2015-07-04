@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path"
@@ -11,7 +12,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	// "github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
@@ -97,6 +98,30 @@ func (s *Sync) Run() {
 	close(s.upload)
 }
 
+func (s *Sync) head(key string) (size int64, err error) {
+	var resp *s3.HeadObjectOutput
+	resp, err = s.S3.HeadObject(&s3.HeadObjectInput{
+		Bucket: aws.String(s.Bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		if awsErr, ok := err.(awserr.Error); ok {
+			log.Printf("awsErr %v %v %v", awsErr.Code(), awsErr.Message(), err)
+			switch awsErr.Code() {
+			case "NoSuchKey":
+				err = nil
+				size = -1
+				return
+			default:
+				return
+			}
+		}
+		return
+	}
+	size = *resp.ContentLength
+	return
+}
+
 func (s *Sync) Upload(sequence uint64, f string) error {
 	key := f
 	if s.Prefix != "" {
@@ -117,8 +142,22 @@ func (s *Sync) Upload(sequence uint64, f string) error {
 		return err
 	}
 	size := stat.Size()
-	// TODO: size check against content already in S3
-	log.Printf("[%d] - %q => s3:///%s%s size:%d bytes", sequence, f, s.Bucket, key, size)
+
+	s3Location := fmt.Sprintf("s3:///%s%s", s.Bucket, key)
+
+	// do a HEAD request against s3 and see if the file is already there
+	if s3size, err := s.head(key); err == nil {
+		if s3size != -1 && size != s3size {
+			log.Printf("[%s] size mismatch. overwriting s3 (locally: %d s3: %d) %q => %s", sequence, size, s3size, f, s3Location)
+		} else if size == s3size {
+			log.Printf("[%d] skipping. same file already exists %q => %s", sequence, f, s3Location)
+			return nil
+		}
+	} else {
+		return err
+	}
+
+	log.Printf("[%d] - %q => %s size:%d bytes", sequence, f, s3Location, size)
 	start := time.Now()
 
 	if s.DryRun {
