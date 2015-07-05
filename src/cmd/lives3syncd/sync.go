@@ -70,15 +70,16 @@ func (s *Sync) firstPass(q chan<- string) {
 		if info.IsDir() {
 			return nil
 		}
-		if strings.HasPrefix(path.Base(p), ".") {
+		base := path.Base(p)
+		if strings.HasPrefix(base, ".") {
 			// skip .hidden_files
 			return nil
 		}
-		if matchesAny(s.Exclude, p) {
+		if matchesAny(s.Exclude, base) {
 			excluded++
 			return nil
 		}
-		if len(s.Match) > 0 && !matchesAny(s.Match, p) {
+		if len(s.Match) > 0 && !matchesAny(s.Match, base) {
 			nonMatch++
 			return nil
 		}
@@ -101,11 +102,10 @@ func (s *Sync) Uploader(wg *sync.WaitGroup) {
 		if err != nil {
 			log.Printf("[%d] error uploading %q - %s", sequence, file, err)
 		}
-		select {
-		case s.uploadDone <- true:
-		default:
-			continue
-		}
+		// select {
+		// case s.uploadDone <- true:
+		// default:
+		// }
 	}
 	log.Printf("Uploader Done")
 	wg.Done()
@@ -187,6 +187,7 @@ func (s *Sync) Upload(sequence uint64, f string) error {
 	start := time.Now().Truncate(time.Millisecond)
 
 	if s.DryRun {
+		log.Printf("[%d] dry run. not uploading", sequence)
 		return nil
 	}
 
