@@ -47,7 +47,9 @@ func (s *Sync) nextSequence() uint64 {
 	return atomic.AddUint64(&s.count, 1)
 }
 
-func (s *Sync) firstPass() {
+func (s *Sync) firstPass(q chan<- string) {
+	log.Printf("Starting initial sync of %q", s.Src)
+	var fileCount int64
 	handle := func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -59,15 +61,15 @@ func (s *Sync) firstPass() {
 			// skip .hidden_files
 			return nil
 		}
-		s.queue <- p
+		fileCount++
+		q <- p
 		return nil
 	}
 	err := filepath.Walk(s.Src, handle)
 	if err != nil {
 		log.Fatalf("%s", err)
 	}
-	log.Printf("exiting firstPass. closing s.queue")
-	close(s.queue)
+	log.Printf("Finished initial sync of %q with %d files", s.Src, fileCount)
 }
 
 func (s *Sync) Uploader(wg *sync.WaitGroup) {
@@ -76,7 +78,7 @@ func (s *Sync) Uploader(wg *sync.WaitGroup) {
 		sequence := s.nextSequence()
 		err := s.Upload(sequence, file)
 		if err != nil {
-			log.Printf("[%d] error: %s - %s", sequence, err, file)
+			log.Printf("[%d] error uploading %q - %s", sequence, file, err)
 		}
 		select {
 		case s.uploadDone <- true:
@@ -90,7 +92,11 @@ func (s *Sync) Uploader(wg *sync.WaitGroup) {
 
 func (s *Sync) Run() {
 	// start fsnotify
-	go s.firstPass()
+	go func() {
+		s.firstPass(s.queue)
+		log.Printf("closing s.queue")
+		close(s.queue)
+	}()
 	for f := range s.queue {
 		s.upload <- f
 	}
@@ -105,10 +111,9 @@ func (s *Sync) head(key string) (size int64, err error) {
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		if awsErr, ok := err.(awserr.Error); ok {
-			log.Printf("awsErr %v %v %v", awsErr.Code(), awsErr.Message(), err)
-			switch awsErr.Code() {
-			case "NoSuchKey":
+		if awsErr, ok := err.(awserr.RequestFailure); ok {
+			switch awsErr.StatusCode() {
+			case 404:
 				err = nil
 				size = -1
 				return
@@ -157,8 +162,8 @@ func (s *Sync) Upload(sequence uint64, f string) error {
 		return err
 	}
 
-	log.Printf("[%d] - %q => %s size:%d bytes", sequence, f, s3Location, size)
-	start := time.Now()
+	log.Printf("[%d] uploading %q => %s size:%d bytes", sequence, f, s3Location, size)
+	start := time.Now().Truncate(time.Millisecond)
 
 	if s.DryRun {
 		return nil
@@ -178,9 +183,9 @@ func (s *Sync) Upload(sequence uint64, f string) error {
 	if err != nil {
 		return err
 	}
-	duration := time.Since(start)
-	rate := float64(size) / (float64(duration) / float64(time.Second))
-	log.Printf("[%d] - finished %s took: %s rate: %.fB/s", sequence, resp.Location, duration, rate)
+	duration := time.Now().Truncate(time.Millisecond).Sub(start)
+	rate := float64(size) / (float64(duration) / float64(time.Second)) / 1024
+	log.Printf("[%d] finished %s took:%s rate:%.fkB/s", sequence, resp.Location, duration, rate)
 	return nil
 }
 

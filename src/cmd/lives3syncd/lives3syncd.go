@@ -16,7 +16,7 @@ func main() {
 	src := flag.String("src", "", "source directory to sync")
 	prefix := flag.String("prefix", "", "prefix for content in s3")
 	dryRun := flag.Bool("dry-run", false, "dry run only - don't upload files")
-	parallelUploads := flag.Int("prallel", -1, "paralell uploads (defaulst to num cores)")
+	parallelUploads := flag.Int("prallel", runtime.NumCPU(), "paralell uploads (defaults to number of available cores)")
 	flag.Parse()
 
 	if *bucket == "" {
@@ -34,13 +34,9 @@ func main() {
 	s.Prefix = *prefix
 	s.DryRun = *dryRun
 
-	// launch the right number of concurrent uploads
 	var wg sync.WaitGroup
-	n := *parallelUploads
-	if n < 1 {
-		n = runtime.GOMAXPROCS(0)
-	}
-	for i := 0; i < n; i++ {
+	log.Printf("Starting %d Concurrent Upload Threads", *parallelUploads)
+	for i := 0; i < *parallelUploads; i++ {
 		wg.Add(1)
 		go s.Uploader(&wg)
 	}
