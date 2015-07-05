@@ -18,11 +18,13 @@ import (
 )
 
 type Sync struct {
-	Bucket string
-	S3     *s3.S3
-	Src    string
-	Prefix string
-	DryRun bool
+	Bucket  string
+	S3      *s3.S3
+	Src     string
+	Prefix  string
+	DryRun  bool
+	Match   StringArray
+	Exclude StringArray
 
 	count      uint64
 	queue      chan string
@@ -47,9 +49,20 @@ func (s *Sync) nextSequence() uint64 {
 	return atomic.AddUint64(&s.count, 1)
 }
 
+func matchesAny(m []string, p string) (ok bool) {
+	for _, mm := range m {
+		if matched, err := path.Match(mm, p); err != nil {
+			panic(err.Error())
+		} else if matched {
+			return true
+		}
+	}
+	return
+}
+
 func (s *Sync) firstPass(q chan<- string) {
 	log.Printf("Starting initial sync of %q", s.Src)
-	var fileCount int64
+	var fileCount, excluded, nonMatch int64
 	handle := func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -61,6 +74,14 @@ func (s *Sync) firstPass(q chan<- string) {
 			// skip .hidden_files
 			return nil
 		}
+		if matchesAny(s.Exclude, p) {
+			excluded++
+			return nil
+		}
+		if len(s.Match) > 0 && !matchesAny(s.Match, p) {
+			nonMatch++
+			return nil
+		}
 		fileCount++
 		q <- p
 		return nil
@@ -69,7 +90,7 @@ func (s *Sync) firstPass(q chan<- string) {
 	if err != nil {
 		log.Fatalf("%s", err)
 	}
-	log.Printf("Finished initial sync of %q with %d files", s.Src, fileCount)
+	log.Printf("Finished initial sync of %q with %d files (excluded %d)", s.Src, fileCount, excluded+nonMatch)
 }
 
 func (s *Sync) Uploader(wg *sync.WaitGroup) {
@@ -185,7 +206,7 @@ func (s *Sync) Upload(sequence uint64, f string) error {
 	}
 	duration := time.Now().Truncate(time.Millisecond).Sub(start)
 	rate := float64(size) / (float64(duration) / float64(time.Second)) / 1024
-	log.Printf("[%d] finished %s took:%s rate:%.fkB/s", sequence, resp.Location, duration, rate)
+	log.Printf("[%d] finished %s took:%s rate:%.fkB/s size:%d bytes", sequence, resp.Location, duration, rate, size)
 	return nil
 }
 

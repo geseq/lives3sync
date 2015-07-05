@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"log"
+	"path"
 	"runtime"
 	"sync"
 
@@ -10,29 +11,46 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
+func validatePatterns(p ...string) error {
+	for _, pp := range p {
+		_, err := path.Match(pp, ".")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func main() {
-	bucket := flag.String("bucket", "", "S3 bucket name")
+	s := NewSync()
+
+	flag.StringVar(&s.Bucket, "bucket", "", "S3 bucket name")
+	flag.StringVar(&s.Src, "src", "", "source directory to sync")
+	flag.StringVar(&s.Prefix, "prefix", "", "prefix for content in s3")
+	flag.BoolVar(&s.DryRun, "dry-run", false, "dry run only - don't upload files")
+
+	flag.Var(&s.Match, "match", "pattern to match (may be given multiple times. Multiple patterns OR'd together)")
+	flag.Var(&s.Exclude, "exclude", "pattern to exclude (may be given multiple times. Multiple patterns OR'd together)")
+
 	region := flag.String("region", "us-east-1", "AWS S3 Region")
-	src := flag.String("src", "", "source directory to sync")
-	prefix := flag.String("prefix", "", "prefix for content in s3")
-	dryRun := flag.Bool("dry-run", false, "dry run only - don't upload files")
 	parallelUploads := flag.Int("prallel", runtime.NumCPU(), "paralell uploads (defaults to number of available cores)")
+
 	flag.Parse()
 
-	if *bucket == "" {
+	if err := validatePatterns(s.Match...); err != nil {
+		log.Fatalf("Invalid Pattern: %s", err)
+	}
+	if err := validatePatterns(s.Exclude...); err != nil {
+		log.Fatalf("Invalid Pattern: %s", err)
+	}
+
+	if s.Bucket == "" {
 		log.Fatalf("bucket name required")
 	}
 
-	svc := s3.New(&aws.Config{
+	s.S3 = s3.New(&aws.Config{
 		Region: *region,
 	})
-
-	s := NewSync()
-	s.Bucket = *bucket
-	s.S3 = svc
-	s.Src = *src
-	s.Prefix = *prefix
-	s.DryRun = *dryRun
 
 	var wg sync.WaitGroup
 	log.Printf("Starting %d Concurrent Upload Threads", *parallelUploads)
@@ -43,5 +61,4 @@ func main() {
 
 	s.Run()
 	wg.Done()
-
 }
