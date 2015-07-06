@@ -31,6 +31,7 @@ type Sync struct {
 	pending    map[string]bool
 	upload     chan string
 	uploadDone chan bool
+	watcher *Watcher
 
 	sync.RWMutex
 }
@@ -60,7 +61,7 @@ func matchesAny(m []string, p string) (ok bool) {
 	return
 }
 
-func (s *Sync) firstPass(q chan<- string) {
+func (s *Sync) firstPass(q chan<- string, dir chan<- string) {
 	log.Printf("Starting initial sync of %q", s.Src)
 	var fileCount, excluded, nonMatch int64
 	handle := func(p string, info os.FileInfo, err error) error {
@@ -68,6 +69,7 @@ func (s *Sync) firstPass(q chan<- string) {
 			return err
 		}
 		if info.IsDir() {
+			dir <- p
 			return nil
 		}
 		base := path.Base(p)
@@ -113,11 +115,41 @@ func (s *Sync) Uploader(wg *sync.WaitGroup) {
 
 func (s *Sync) Run() {
 	// start fsnotify
+	updates := make(chan string, 10)
 	go func() {
-		s.firstPass(s.queue)
+		for f := range updates:
+			base := path.Base(f)
+			if strings.HasPrefix(base, ".") {
+				// skip .hidden_files
+				continue
+			}
+			if matchesAny(s.Exclude, base) {
+				// excluded++
+				continue
+			}
+			if len(s.Match) > 0 && !matchesAny(s.Match, base) {
+				// nonMatch++
+				continue
+			}
+			// TODO: is dir?
+			s.queue <- f- 
+		}
+	}()
+	s.watcher = NewWatcher(src, s.queue)
+	directories := make(chan string)
+	go func() {
+		for d := range directories {
+			s.watcher.Watch(d)
+		}
+	}()
+
+	go func() {
+		s.firstPass(s.queue, directories)
 		log.Printf("closing s.queue")
 		close(s.queue)
+		close(directories)
 	}()
+	
 	for f := range s.queue {
 		s.upload <- f
 	}
