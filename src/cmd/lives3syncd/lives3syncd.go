@@ -28,6 +28,7 @@ func main() {
 	flag.StringVar(&s.Src, "src", "", "source directory to sync")
 	flag.StringVar(&s.Prefix, "prefix", "", "prefix for content in s3")
 	flag.BoolVar(&s.DryRun, "dry-run", false, "dry run only - don't upload files")
+	flag.BoolVar(&s.RunOnce, "run-once", false, "exit after syncing existing files (ie: don't wait for updates)")
 
 	flag.Var(&s.Match, "match", "pattern to match (may be given multiple times. Multiple patterns OR'd together)")
 	flag.Var(&s.Exclude, "exclude", "pattern to exclude (may be given multiple times. Multiple patterns OR'd together)")

@@ -1,23 +1,23 @@
 package main
 
 import (
+	"gopkg.in/fsnotify.v0"
 	"log"
 	"time"
-	"gopkg.in/fsnotify.v0"
 )
 
 type Watcher struct {
 	*fsnotify.Watcher
 }
 
-func NewWatcher(src string, out chan <- string) *Watcher{
+func NewWatcher(src string, out chan<- string) *Watcher {
 	w := &Watcher{
-		Watcher: fsnotify.NewWatcher()
+		Watcher: fsnotify.NewWatcher(),
 	}
 	w.Watch(src)
 	go func() {
 		for ev := range w.Event {
-			if ev.IsDelete(){
+			if ev.IsDelete() {
 				return
 			}
 			out <- ev.Name
