@@ -28,10 +28,11 @@ type Sync struct {
 
 	count uint64
 
-	queue      chan string
-	pending    map[string]time.Duration
-	upload     chan string
-	uploadDone chan bool
+	pending    map[string]*PendingSync
+	pqueue 	   PriorityQueue
+	queue      chan *PendingSync
+	upload     chan *PendingSync
+	uploadNotify chan bool
 	watcher    *Watcher
 
 	sync.RWMutex
@@ -44,16 +45,12 @@ type FileUpdate struct {
 
 func NewSync() *Sync {
 	s := &Sync{
-		queue:      make(chan string, 100),
-		pending:    make(map[string]time.Duration),
-		upload:     make(chan string),
+		queue:      make(chan *PendingSync, 100),
+		pending:    make(map[string]*PendingSync),
+		upload:     make(chan *PendingSync),
 		uploadDone: make(chan bool, 1),
 	}
 	return s
-}
-
-func (s *Sync) nextSequence() uint64 {
-	return atomic.AddUint64(&s.count, 1)
 }
 
 func matchesAny(m []string, p string) (ok bool) {
@@ -67,7 +64,8 @@ func matchesAny(m []string, p string) (ok bool) {
 	return
 }
 
-func (s *Sync) firstPass(q chan<- string, dir chan<- string) {
+// firstPass reads the filesystem and streams out files and directories
+func (s *Sync) firstPass(q chan<- *PendingSync, dir chan<- string) {
 	log.Printf("Starting initial sync of %q", s.Src)
 	var fileCount, excluded, nonMatch, dirCount int64
 	handle := func(p string, info os.FileInfo, err error) error {
@@ -93,37 +91,45 @@ func (s *Sync) firstPass(q chan<- string, dir chan<- string) {
 			return nil
 		}
 		fileCount++
-		q <- p
+		
+		q <- &PendingSync{
+			Name:p,
+			Mtime:info.ModTime().Unix(),
+			Size:info.Size(),
+		}
 		return nil
 	}
 	err := filepath.Walk(s.Src, handle)
 	if err != nil {
 		log.Fatalf("%s", err)
 	}
-	log.Printf("Finished initial sync of %q with %d files (excluded %d). Watching %d directories for future updates.", s.Src, fileCount, excluded+nonMatch, dirCount+1)
+	log.Printf("Initial sync of %q found %d files (excluded %d). Watching %d directories for future updates.", s.Src, fileCount, excluded+nonMatch, dirCount+1)
 }
 
-func (s *Sync) Uploader(wg *sync.WaitGroup) {
-	// goroutine that listens for files to upload
-	for file := range s.upload {
-		sequence := s.nextSequence()
-		err := s.Upload(sequence, file)
-		if err != nil {
-			log.Printf("[%d] error uploading %q - %s", sequence, file, err)
-			// TODO: put back on pending queue
-		}
 
-		select {
-		case s.uploadDone <- true:
-		default:
+func (s *Sync) queueLoop() {
+	for p := range self.queue {
+		s.Lock()
+		if existing, ok := s.pending[p.Name]; ok {
+			// update priority queue
+			if p.Mtime > existing.Mtime {
+				s.pending[p.Name] = p
+				s.pqueue.update(existing, p.Mtime, p.Size)
+			} else {
+				// skipping
+			}
+		} else {
+			s.pending[p.Name] = p
+			hep.Push(&s.pqueue, p)
 		}
-
+		s.Unlock()
+		// notify the uploadLoop
 	}
-	log.Printf("Uploader Done")
-	wg.Done()
 }
 
 func (s *Sync) Run() {
+	go s.queueLoop()
+
 	// start fsnotify
 	updates := make(chan string, 10)
 	go func() {
@@ -141,10 +147,23 @@ func (s *Sync) Run() {
 				// nonMatch++
 				continue
 			}
-			// TODO: is dir?
-			s.queue <- f
+			info, err := os.Stat(f)
+			if err != nil {
+				log.Printf("%s", err)
+				continue
+			}
+			if info.IsDir() {
+				continue
+			}
+			s.queue <- &PendingSync{
+				Name: f,
+				Mtime: info.ModTime().Unix(),
+				Size: info.Size(),
+			}
 		}
 	}()
+	
+	
 	s.watcher = NewWatcher(src, s.queue)
 	directories := make(chan string)
 	go func() {
@@ -166,6 +185,13 @@ func (s *Sync) Run() {
 	}
 	log.Printf("exiting Run(). closing s.upload")
 	close(s.upload)
+}
+
+func (s *Sync) notifyUpload() {
+	select {
+	case s.uploadNotify <- true:
+	default:
+	}
 }
 
 // resp, err := svc.ListObjects(&s3.ListObjectsInput{

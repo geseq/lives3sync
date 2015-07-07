@@ -14,8 +14,31 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
-func (s *Sync) Upload(sequence uint64, f string) error {
-	key := f
+func (s *Sync) nextSequence() uint64 {
+	return atomic.AddUint64(&s.count, 1)
+}
+
+
+func (s *Sync) Uploader(wg *sync.WaitGroup) {
+	// goroutine that listens for files to upload
+	for entry := range s.upload {
+		if entry.Sequence == 0 {
+			entry.Sequence = s.nextSequence()
+		}
+		entry.Attempts++
+		err := s.Upload(entry)
+		if err != nil {
+			log.Printf("[%d] error uploading %q - %s", entry.Sequence, entry.Name, err)
+			continue
+		}
+	}
+	log.Printf("Uploader Done")
+	wg.Done()
+}
+
+
+func (s *Sync) Upload(entry *PendingSync) error {
+	key := entry.Name
 	if s.Prefix != "" {
 		key = path.Join(s.Prefix, key)
 	}
@@ -23,7 +46,7 @@ func (s *Sync) Upload(sequence uint64, f string) error {
 		key = "/" + key
 	}
 
-	inputFile, err := os.Open(f)
+	inputFile, err := os.Open(entry.Name)
 	if err != nil {
 		return err
 	}
@@ -34,22 +57,26 @@ func (s *Sync) Upload(sequence uint64, f string) error {
 		return err
 	}
 	size := stat.Size()
+	
+	if size != entry.Size {
+		return fmt.Errorf("%s expected size %d found %d. requeueing sync - %s", entry.Name, size, entry.Size)
+	}
 
 	s3Location := fmt.Sprintf("s3:///%s%s", s.Bucket, key)
 
 	// do a HEAD request against s3 and see if the file is already there
 	if s3size, err := s.head(key); err == nil {
 		if s3size != -1 && size != s3size {
-			log.Printf("[%s] size mismatch. overwriting s3 (locally: %d s3: %d) %q => %s", sequence, size, s3size, f, s3Location)
+			log.Printf("[%s] size mismatch. overwriting s3 (locally: %d s3: %d) %q => %s", entry.Sequence, size, s3size, entry.File, s3Location)
 		} else if size == s3size {
-			log.Printf("[%d] skipping. same file already exists %q => %s", sequence, f, s3Location)
+			log.Printf("[%d] skipping. same file already exists %q => %s", entry.Sequence, entry.Name, s3Location)
 			return nil
 		}
 	} else {
 		return err
 	}
 
-	log.Printf("[%d] uploading %q => %s size:%d bytes", sequence, f, s3Location, size)
+	log.Printf("[%d] uploading %q => %s size:%d bytes", entry.Sequence, entry.Name, s3Location, size)
 	start := time.Now().Truncate(time.Millisecond)
 
 	if s.DryRun {
