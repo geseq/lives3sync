@@ -22,6 +22,7 @@ func validatePatterns(p ...string) error {
 }
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	s := NewSync()
 
 	flag.StringVar(&s.Bucket, "bucket", "", "S3 bucket name")

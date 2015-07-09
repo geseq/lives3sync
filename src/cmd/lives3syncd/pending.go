@@ -2,18 +2,18 @@ package main
 
 import (
 	"container/heap"
-	"fmt"
 )
 
-// An Item is something we manage in a priority queue.
+// PendingSync is an entry for a file that needs to be synced which we manage in a priority queue.
 type PendingSync struct {
 	Name     string
 	Mtime    int64
 	Size     int64
-	Sequence int
+	Sequence uint64
 	Attempts int
-	// The index is needed by update and is maintained by the heap.Interface methods.
-	index int // The index of the item in the heap.
+
+	// The heap index is needed by update and is maintained by the heap.Interface methods.
+	index int
 }
 
 // A PriorityQueue implements heap.Interface and holds Items.
@@ -23,7 +23,7 @@ func (pq PriorityQueue) Len() int { return len(pq) }
 
 func (pq PriorityQueue) Less(i, j int) bool {
 	// We want Pop to give us the highest, not lowest, priority so we use greater than here.
-	return pq[i].mtime > pq[j].mtime
+	return pq[i].Mtime > pq[j].Mtime
 }
 
 func (pq PriorityQueue) Swap(i, j int) {
@@ -49,8 +49,8 @@ func (pq *PriorityQueue) Pop() interface{} {
 }
 
 // update modifies the priority and value of an Item in the queue.
-func (pq *PriorityQueue) update(item *PendingSync, name string, mtime, size int64) {
-	item.Name = name
+func (pq *PriorityQueue) update(item *PendingSync, mtime, size int64) {
+	// TODO: atomic updates
 	item.Mtime = mtime
 	item.Size = size
 	heap.Fix(pq, item.index)

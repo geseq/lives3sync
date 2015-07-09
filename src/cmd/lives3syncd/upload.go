@@ -6,6 +6,8 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -65,7 +67,7 @@ func (s *Sync) Upload(entry *PendingSync) error {
 	// do a HEAD request against s3 and see if the file is already there
 	if s3size, err := s.head(key); err == nil {
 		if s3size != -1 && size != s3size {
-			log.Printf("[%s] size mismatch. overwriting s3 (locally: %d s3: %d) %q => %s", entry.Sequence, size, s3size, entry.File, s3Location)
+			log.Printf("[%s] size mismatch. overwriting s3 (locally: %d s3: %d) %q => %s", entry.Sequence, size, s3size, entry.Name, s3Location)
 		} else if size == s3size {
 			log.Printf("[%d] skipping. same file already exists %q => %s", entry.Sequence, entry.Name, s3Location)
 			return nil
@@ -78,7 +80,7 @@ func (s *Sync) Upload(entry *PendingSync) error {
 	start := time.Now().Truncate(time.Millisecond)
 
 	if s.DryRun {
-		log.Printf("[%d] dry run. not uploading", sequence)
+		log.Printf("[%d] dry run. not uploading", entry.Sequence)
 		return nil
 	}
 
@@ -98,7 +100,7 @@ func (s *Sync) Upload(entry *PendingSync) error {
 	}
 	duration := time.Now().Truncate(time.Millisecond).Sub(start)
 	rate := float64(size) / (float64(duration) / float64(time.Second)) / 1024
-	log.Printf("[%d] finished %s took:%s rate:%.fkB/s size:%d bytes", sequence, resp.Location, duration, rate, size)
+	log.Printf("[%d] finished %s took:%s rate:%.fkB/s size:%d bytes", entry.Sequence, resp.Location, duration, rate, size)
 	return nil
 }
 

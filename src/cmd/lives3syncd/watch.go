@@ -1,18 +1,23 @@
 package main
 
 import (
-	"gopkg.in/fsnotify.v0"
 	"log"
-	"time"
+
+	"gopkg.in/fsnotify.v0"
 )
 
 type Watcher struct {
 	*fsnotify.Watcher
 }
 
+// NewWatcher starts watching directory `src` and writes events to `out`
 func NewWatcher(src string, out chan<- string) *Watcher {
+	ww, err := fsnotify.NewWatcher()
+	if err != nil {
+		panic(err.Error())
+	}
 	w := &Watcher{
-		Watcher: fsnotify.NewWatcher(),
+		Watcher: ww,
 	}
 	w.Watch(src)
 	go func() {
