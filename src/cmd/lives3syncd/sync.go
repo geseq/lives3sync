@@ -31,6 +31,7 @@ type Sync struct {
 	upload       chan *PendingSync
 	uploadNotify chan bool
 	exitChan     chan bool
+	flushUploads bool
 	watcher      *Watcher
 
 	sync.RWMutex
@@ -137,9 +138,12 @@ func (s *Sync) queueLoop() {
 			s.notifyUpload()
 		}
 	}
+	s.flushUploads = true
+	s.notifyUpload()
+	log.Printf("exiting queueLoop()")
 }
 
-func (s *Sync) uplaodLoop() {
+func (s *Sync) uploadLoop() {
 	// var ticker *time.Ticker
 	var delay <-chan time.Time
 	for {
@@ -150,9 +154,13 @@ func (s *Sync) uplaodLoop() {
 			log.Printf("delay elapsed")
 		}
 
+	next:
+
 		var item *PendingSync
+		var pendingCount int
 		s.Lock()
-		if len(s.pending) > 0 {
+		pendingCount = len(s.pending)
+		if pendingCount > 0 {
 			item = heap.Pop(&s.pqueue).(*PendingSync)
 			delete(s.pending, item.Name)
 			// TODO: still track while upload is in progress?
@@ -160,8 +168,12 @@ func (s *Sync) uplaodLoop() {
 		s.Unlock()
 		if item != nil {
 			s.upload <- item
+			goto next
 		}
 
+		if s.flushUploads && pendingCount == 0 {
+			break
+		}
 		// get the top item on the stack. If it's ready to sync, write to the upload channel
 		// jump to calc
 		// else
@@ -171,6 +183,8 @@ func (s *Sync) uplaodLoop() {
 		// }
 
 	}
+	log.Printf("exiting uploadLoop()")
+	close(s.upload)
 }
 
 func (s *Sync) handleWatchEvents(updates <-chan string) {
@@ -198,9 +212,9 @@ func (s *Sync) handleWatchEvents(updates <-chan string) {
 	}
 }
 
-func (s *Sync) Run() {
+func (s *Sync) Run(wg *sync.WaitGroup) {
 	go s.queueLoop()
-	go s.uplaodLoop()
+	go s.uploadLoop()
 
 	// start fsnotify
 	// for any directory we discover in our initial sync, start watching it
@@ -231,10 +245,7 @@ func (s *Sync) Run() {
 		}
 	}()
 
-	<-s.exitChan
-	log.Printf("exiting Run()")
-	s.watcher.Close()
-	close(s.upload)
+	wg.Done()
 }
 
 func (s *Sync) notifyUpload() {

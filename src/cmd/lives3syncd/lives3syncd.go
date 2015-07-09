@@ -61,7 +61,6 @@ func main() {
 		go s.Uploader(&wg)
 	}
 
-	s.Run()
-	log.Printf("Waiting for Uploaders")
+	s.Run(&wg)
 	wg.Wait()
 }
