@@ -28,12 +28,12 @@ type Sync struct {
 
 	count uint64
 
-	pending    map[string]*PendingSync
-	pqueue 	   PriorityQueue
-	queue      chan *PendingSync
-	upload     chan *PendingSync
+	pending      map[string]*PendingSync
+	pqueue       PriorityQueue
+	queue        chan *PendingSync
+	upload       chan *PendingSync
 	uploadNotify chan bool
-	watcher    *Watcher
+	watcher      *Watcher
 
 	sync.RWMutex
 }
@@ -91,11 +91,11 @@ func (s *Sync) firstPass(q chan<- *PendingSync, dir chan<- string) {
 			return nil
 		}
 		fileCount++
-		
+
 		q <- &PendingSync{
-			Name:p,
-			Mtime:info.ModTime().Unix(),
-			Size:info.Size(),
+			Name:  p,
+			Mtime: info.ModTime().Unix(),
+			Size:  info.Size(),
 		}
 		return nil
 	}
@@ -105,7 +105,6 @@ func (s *Sync) firstPass(q chan<- *PendingSync, dir chan<- string) {
 	}
 	log.Printf("Initial sync of %q found %d files (excluded %d). Watching %d directories for future updates.", s.Src, fileCount, excluded+nonMatch, dirCount+1)
 }
-
 
 func (s *Sync) queueLoop() {
 	for p := range self.queue {
@@ -123,7 +122,12 @@ func (s *Sync) queueLoop() {
 			hep.Push(&s.pqueue, p)
 		}
 		s.Unlock()
-		// notify the uploadLoop
+		s.notifyUpload()
+	}
+}
+
+func (s *Sync) uplaodLoop() {
+	for {
 	}
 }
 
@@ -156,14 +160,13 @@ func (s *Sync) Run() {
 				continue
 			}
 			s.queue <- &PendingSync{
-				Name: f,
+				Name:  f,
 				Mtime: info.ModTime().Unix(),
-				Size: info.Size(),
+				Size:  info.Size(),
 			}
 		}
 	}()
-	
-	
+
 	s.watcher = NewWatcher(src, s.queue)
 	directories := make(chan string)
 	go func() {
@@ -180,9 +183,6 @@ func (s *Sync) Run() {
 		}
 	}()
 
-	for f := range s.queue {
-		s.upload <- f
-	}
 	log.Printf("exiting Run(). closing s.upload")
 	close(s.upload)
 }

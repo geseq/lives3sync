@@ -18,7 +18,6 @@ func (s *Sync) nextSequence() uint64 {
 	return atomic.AddUint64(&s.count, 1)
 }
 
-
 func (s *Sync) Uploader(wg *sync.WaitGroup) {
 	// goroutine that listens for files to upload
 	for entry := range s.upload {
@@ -35,7 +34,6 @@ func (s *Sync) Uploader(wg *sync.WaitGroup) {
 	log.Printf("Uploader Done")
 	wg.Done()
 }
-
 
 func (s *Sync) Upload(entry *PendingSync) error {
 	key := entry.Name
@@ -57,7 +55,7 @@ func (s *Sync) Upload(entry *PendingSync) error {
 		return err
 	}
 	size := stat.Size()
-	
+
 	if size != entry.Size {
 		return fmt.Errorf("%s expected size %d found %d. requeueing sync - %s", entry.Name, size, entry.Size)
 	}

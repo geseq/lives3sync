@@ -7,9 +7,9 @@ import (
 
 // An Item is something we manage in a priority queue.
 type PendingSync struct {
-	Name string
-	Mtime int64
-	Size int64
+	Name     string
+	Mtime    int64
+	Size     int64
 	Sequence int
 	Attempts int
 	// The index is needed by update and is maintained by the heap.Interface methods.
