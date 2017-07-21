@@ -8,11 +8,24 @@ This functions just like rsync and will monitor for new files and immediately sy
 
 ```
 Usage of ./lives3syncd:
-  -bucket="": S3 bucket name
-  -prefix="": A directory prefix for prepended to uploads
-  -src="": directory to monitor for new files
-  -dry-run=false: log intended actions without initiating any copies
-  -run-once=false: exit after a single sync pace
+  -bucket string
+    	S3 bucket name
+  -dry-run
+    	dry run only - don't upload files
+  -exclude value
+    	pattern to exclude (may be given multiple times. Multiple patterns OR'd together)
+  -match value
+    	pattern to match (may be given multiple times. Multiple patterns OR'd together)
+  -parallel int
+    	parallel uploads (defaults to number of available cores)
+  -prefix string
+    	prefix for content in s3
+  -region string
+    	AWS S3 Region (default "us-east-1")
+  -run-once
+    	exit after syncing existing files (ie: don't wait for updates)
+  -src string
+    	source directory to sync
 ```
 
 ## Configuring S3 Credentials

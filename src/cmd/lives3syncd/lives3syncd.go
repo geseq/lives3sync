@@ -35,9 +35,13 @@ func main() {
 	flag.Var(&s.Exclude, "exclude", "pattern to exclude (may be given multiple times. Multiple patterns OR'd together)")
 
 	region := flag.String("region", "us-east-1", "AWS S3 Region")
-	parallelUploads := flag.Int("prallel", runtime.NumCPU(), "paralell uploads (defaults to number of available cores)")
+	parallelUploads := flag.Int("parallel", runtime.NumCPU(), "parallel uploads (defaults to number of available cores)")
 
 	flag.Parse()
+	
+	if *parallelUploads < 1 {
+		log.Fatalf("Invalid setting for parallel (%d). Must be >= 1", *parallelUploads)
+	}
 
 	if err := validatePatterns(s.Match...); err != nil {
 		log.Fatalf("Invalid Pattern: %s", err)
