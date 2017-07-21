@@ -2,12 +2,14 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"path"
 	"runtime"
 	"sync"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
@@ -60,9 +62,13 @@ func main() {
 		log.Fatalf("bucket name required")
 	}
 
-	s.S3 = s3.New(&aws.Config{
-		Region: *region,
-	})
+	s.sess = session.Must(session.NewSessionWithOptions(session.Options{
+		SharedConfigState: session.SharedConfigEnable,
+		Config: aws.Config{
+			Region: region,
+		},
+	}))
+	s.S3 = s3.New(s.sess)
 
 	var wg sync.WaitGroup
 	log.Printf("Starting %d Concurrent Upload Threads", *parallelUploads)

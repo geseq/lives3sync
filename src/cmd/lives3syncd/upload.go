@@ -84,9 +84,8 @@ func (s *Sync) Upload(entry *PendingSync) error {
 		return nil
 	}
 
-	uploader := s3manager.NewUploader(&s3manager.UploadOptions{
-		S3:       s.S3,
-		PartSize: 1024 * 1024 * 10,
+	uploader := s3manager.NewUploader(s.sess, func(u *s3manager.Uploader) {
+		u.PartSize = 64 * 1024 * 1024 // 64MB per part
 	})
 
 	resp, err := uploader.Upload(&s3manager.UploadInput{
