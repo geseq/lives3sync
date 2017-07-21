@@ -41,7 +41,7 @@ func NewSync() *Sync {
 	s := &Sync{
 		queue:        make(chan *PendingSync, 100),
 		pending:      make(map[string]*PendingSync),
-		upload:       make(chan *PendingSync),
+		upload:       make(chan *PendingSync, 1),
 		uploadNotify: make(chan bool, 1),
 		exitChan:     make(chan bool),
 	}

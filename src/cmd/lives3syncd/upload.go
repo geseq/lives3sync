@@ -73,7 +73,7 @@ func (s *Sync) Upload(entry *PendingSync) error {
 			return nil
 		}
 	} else {
-		return err
+		return fmt.Errorf("error checking HEAD %s %s", s3Location, err)
 	}
 
 	log.Printf("[%d] uploading %q => %s size:%d bytes", entry.Sequence, entry.Name, s3Location, size)

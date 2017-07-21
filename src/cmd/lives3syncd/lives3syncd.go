@@ -38,7 +38,7 @@ func main() {
 	parallelUploads := flag.Int("parallel", runtime.NumCPU(), "parallel uploads (defaults to number of available cores)")
 
 	flag.Parse()
-	
+
 	if *parallelUploads < 1 {
 		log.Fatalf("Invalid setting for parallel (%d). Must be >= 1", *parallelUploads)
 	}
@@ -65,6 +65,7 @@ func main() {
 		go s.Uploader(&wg)
 	}
 
+	wg.Add(1)
 	s.Run(&wg)
 	wg.Wait()
 }
