@@ -1,6 +1,8 @@
 lives3syncd
 -----------
 
+[![Build Status](https://secure.travis-ci.org/jehiah/lives3sync.svg?branch=master)](http://travis-ci.org/jehiah/lives3sync)
+
 Continually sync a local filesystem to S3.
 
 This functions just like rsync and will monitor for new files and immediately sync them to S3. Multiple uploads to S3 are handled concurrently, and large files are chunked.

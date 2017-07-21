@@ -25,6 +25,7 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	s := NewSync()
 
+	showVersion := flag.Bool("version", false, "print version string")
 	flag.StringVar(&s.Bucket, "bucket", "", "S3 bucket name")
 	flag.StringVar(&s.Src, "src", "", "source directory to sync")
 	flag.StringVar(&s.Prefix, "prefix", "", "prefix for content in s3")
@@ -38,6 +39,11 @@ func main() {
 	parallelUploads := flag.Int("parallel", runtime.NumCPU(), "parallel uploads (defaults to number of available cores)")
 
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("lives3syncd v%s (built w/%s)\n", VERSION, runtime.Version())
+		return
+	}
 
 	if *parallelUploads < 1 {
 		log.Fatalf("Invalid setting for parallel (%d). Must be >= 1", *parallelUploads)
