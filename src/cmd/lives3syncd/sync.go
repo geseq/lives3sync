@@ -10,12 +10,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 type Sync struct {
 	Bucket  string
 	S3      *s3.S3
+	sess    client.ConfigProvider
 	Src     string
 	Prefix  string
 	DryRun  bool
@@ -41,7 +43,7 @@ func NewSync() *Sync {
 	s := &Sync{
 		queue:        make(chan *PendingSync, 100),
 		pending:      make(map[string]*PendingSync),
-		upload:       make(chan *PendingSync),
+		upload:       make(chan *PendingSync, 1),
 		uploadNotify: make(chan bool, 1),
 		exitChan:     make(chan bool),
 	}
