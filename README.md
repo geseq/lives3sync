@@ -9,17 +9,21 @@ This functions just like rsync and will monitor for new files and immediately sy
 
 
 ```
-Usage of ./lives3syncd:
+Usage of lives3syncd:
+  -base
+    	apply 'match' and 'exclude' against the file base name not the full path
   -bucket string
     	S3 bucket name
   -dry-run
     	dry run only - don't upload files
   -exclude value
     	pattern to exclude (may be given multiple times. Multiple patterns OR'd together)
+  -ignore-hidden
+    	ignore hidden files (i.e. dot files)
   -match value
     	pattern to match (may be given multiple times. Multiple patterns OR'd together)
   -parallel int
-    	parallel uploads (defaults to number of available cores)
+    	parallel uploads (defaults to number of available cores) (default 8)
   -prefix string
     	prefix for content in s3
   -region string
@@ -28,6 +32,8 @@ Usage of ./lives3syncd:
     	exit after syncing existing files (ie: don't wait for updates)
   -src string
     	source directory to sync
+  -version
+    	print version string
 ```
 
 ## Configuring S3 Credentials

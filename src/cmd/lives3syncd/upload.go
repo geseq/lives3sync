@@ -20,7 +20,7 @@ func (s *Sync) nextSequence() uint64 {
 	return atomic.AddUint64(&s.count, 1)
 }
 
-func (s *Sync) Uploader(wg *sync.WaitGroup) {
+func (s *Sync) Uploader(wg *sync.WaitGroup, totalUploads, totalSize *int64) {
 	// goroutine that listens for files to upload
 	for entry := range s.upload {
 		if entry.Sequence == 0 {
@@ -32,8 +32,11 @@ func (s *Sync) Uploader(wg *sync.WaitGroup) {
 			log.Printf("[%d] error uploading %q - %s", entry.Sequence, entry.Name, err)
 			continue
 		}
+		if entry.Uploaded {
+			atomic.AddInt64(totalUploads, 1)
+			atomic.AddInt64(totalSize, entry.Size)
+		}
 	}
-	log.Printf("Uploader Done")
 	wg.Done()
 }
 
@@ -100,6 +103,7 @@ func (s *Sync) Upload(entry *PendingSync) error {
 	duration := time.Now().Truncate(time.Millisecond).Sub(start)
 	rate := float64(size) / (float64(duration) / float64(time.Second)) / 1024
 	log.Printf("[%d] finished %s took:%s rate:%.fkB/s size:%d bytes", entry.Sequence, resp.Location, duration, rate, size)
+	entry.Uploaded = true
 	return nil
 }
 
