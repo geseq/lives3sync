@@ -15,15 +15,17 @@ import (
 )
 
 type Sync struct {
-	Bucket  string
-	S3      *s3.S3
-	sess    client.ConfigProvider
-	Src     string
-	Prefix  string
-	DryRun  bool
-	Match   StringArray
-	Exclude StringArray
-	RunOnce bool
+	Bucket       string
+	S3           *s3.S3
+	sess         client.ConfigProvider
+	Src          string
+	Prefix       string
+	DryRun       bool
+	Match        StringArray
+	Exclude      StringArray
+	IgnoreHidden bool
+	BaseMatch    bool
+	RunOnce      bool
 
 	count uint64
 
@@ -61,14 +63,21 @@ func matchesAny(m []string, p string) (ok bool) {
 	return
 }
 
-func shouldSync(base string, exclude, match []string) bool {
+// shouldSync checks the relative path p against the match and exclude lists
+// It conditionally ignores "hidden" files
+func shouldSync(p string, exclude, match []string, ignoreHidden, baseMatch bool) bool {
+	if baseMatch {
+		p = filepath.Base(p)
+	}
 	switch {
-	case strings.HasPrefix(base, "."):
-		// skip .hidden_files
+	case strings.HasPrefix(filepath.Base(p), "."):
+		if ignoreHidden {
+			// skip .hidden_files
+			return false
+		}
+	case matchesAny(exclude, p):
 		return false
-	case matchesAny(exclude, base):
-		return false
-	case len(match) > 0 && !matchesAny(match, base):
+	case len(match) > 0 && !matchesAny(match, p):
 		return false
 	}
 	return true
@@ -89,8 +98,7 @@ func (s *Sync) initialDirSync(dir chan<- string) {
 			}
 			return nil
 		}
-		base := path.Base(p)
-		if !shouldSync(base, s.Exclude, s.Match) {
+		if !shouldSync(p, s.Exclude, s.Match, s.IgnoreHidden, s.BaseMatch) {
 			skipped++
 			return nil
 		}
@@ -151,7 +159,7 @@ func (s *Sync) uploadLoop() {
 	for {
 		select {
 		case <-s.uploadNotify:
-			log.Printf("upload Notify")
+			// log.Printf("upload Notify")
 		case <-delay:
 			log.Printf("delay elapsed")
 		}
@@ -191,8 +199,7 @@ func (s *Sync) uploadLoop() {
 
 func (s *Sync) handleWatchEvents(updates <-chan string) {
 	for f := range updates {
-		base := path.Base(f)
-		if !shouldSync(base, s.Exclude, s.Match) {
+		if !shouldSync(f, s.Exclude, s.Match, s.IgnoreHidden, s.BaseMatch) {
 			continue
 		}
 		info, err := os.Lstat(f)

@@ -12,6 +12,8 @@ type PendingSync struct {
 	Sequence uint64
 	Attempts int
 
+	Uploaded bool
+
 	// The heap index is needed by update and is maintained by the heap.Interface methods.
 	index int
 }
